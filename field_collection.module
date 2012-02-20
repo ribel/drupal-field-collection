@@ -1330,7 +1330,8 @@ function field_collection_i18n_string_list_field_alter(&$properties, $type, $ins
   if ($type == 'field_instance') {
     $field = field_info_field($instance['field_name']);
 
-    if ($field['type'] == 'field_collection') {
+    if ($field['type'] == 'field_collection' && !empty($instance['display'])) {
+
       foreach ($instance['display'] as $view_mode => $display) {
         if ($display['type'] != 'field_collection_fields') {
           $display['settings'] += array('edit' => 'edit', 'delete' => 'delete', 'add' => 'add');
