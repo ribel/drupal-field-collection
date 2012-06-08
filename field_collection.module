@@ -365,6 +365,23 @@ class FieldCollectionItemEntity extends Entity {
   }
 
   /**
+   * Export the field collection item.
+   *
+   * Since field collection entities are not directly exportable (i.e., do not
+   * have 'exportable' set to TRUE in hook_entity_info()) and since Features
+   * calls this method when exporting the field collection as a field attached
+   * to another entity, we return the export in the format expected by
+   * Features, rather than in the normal Entity::export() format.
+   */
+  public function export($prefix = '') {
+    // Based on code in EntityDefaultFeaturesController::export_render().
+    $export = "entity_import('" . $this->entityType() . "', '";
+    $export .= addcslashes(parent::export(), '\\\'');
+    $export .= "')";
+    return $export;
+  }
+
+  /**
    * Magic method to only serialize what's necessary.
    */
   public function __sleep() {
