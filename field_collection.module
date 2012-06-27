@@ -603,6 +603,33 @@ function field_collection_field_info() {
 }
 
 /**
+ * Implements hook_field_instance_settings_form().
+ */
+function field_collection_field_instance_settings_form($field, $instance) {
+
+  $element['fieldset'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Default value'),
+    '#collapsible' => FALSE,
+    // As field_ui_default_value_widget() does, we change the #parents so that
+    // the value below is writing to $instance in the right location.
+    '#parents' => array('instance'),
+  );
+  // Be sure to set the default value to NULL, e.g. to repair old fields
+  // that still have one.
+  $element['fieldset']['default_value'] = array(
+    '#type' => 'value',
+    '#value' => NULL,
+  );
+  $element['fieldset']['content'] = array(
+    '#pre' => '<p>',
+    '#markup' => t('To specify a default value, configure it via the regular default value setting of each field that is part of the field collection. To do so, go to the <a href="!url">Manage fields</a> screen of the field collection.', array('!url' => url('admin/structure/field-collections/' . strtr($field['field_name'], array('_' => '-')) . '/fields'))),
+    '#suffix' => '</p>',
+  );
+  return $element;
+}
+
+/**
  * Returns the base path to use for field collection items.
  */
 function field_collection_field_get_path($field) {
@@ -965,7 +992,7 @@ function field_collection_field_widget_info() {
       'field types' => array('field_collection'),
       'behaviors' => array(
         'multiple values' => FIELD_BEHAVIOR_CUSTOM,
-        'default value' => FIELD_BEHAVIOR_CUSTOM,
+        'default value' => FIELD_BEHAVIOR_NONE,
       ),
     ),
     'field_collection_embed' => array(
@@ -973,7 +1000,7 @@ function field_collection_field_widget_info() {
       'field types' => array('field_collection'),
       'behaviors' => array(
         'multiple values' => FIELD_BEHAVIOR_DEFAULT,
-        'default value' => FIELD_BEHAVIOR_DEFAULT,
+        'default value' => FIELD_BEHAVIOR_NONE,
       ),
     ),
   );
