@@ -719,6 +719,7 @@ function field_collection_field_is_empty($item, $field) {
  */
 function field_collection_item_is_empty(FieldCollectionItemEntity $item) {
   $instances = field_info_instances('field_collection_item', $item->field_name);
+  $is_empty = TRUE;
 
   foreach ($instances as $instance) {
     $field_name = $instance['field_name'];
@@ -733,13 +734,16 @@ function field_collection_item_is_empty(FieldCollectionItemEntity $item) {
         // field collection item is not empty.
         foreach ($item->{$field_name}[$langcode] as $field_item) {
           if (!module_invoke($field['module'], 'field_is_empty', $field_item, $field)) {
-            return FALSE;
+            $is_empty = FALSE;
           }
         }
       }
     }
   }
-  return TRUE;
+
+  // Allow other modules a chance to alter the value before returning.
+  drupal_alter('field_collection_is_empty', $is_empty, $item);
+  return $is_empty;
 }
 
 /**
