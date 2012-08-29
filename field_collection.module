@@ -594,7 +594,10 @@ function field_collection_field_info() {
       'default_widget' => 'field_collection_hidden',
       'default_formatter' => 'field_collection_view',
       // As of now there is no UI for setting the path.
-      'settings' => array('path' => ''),
+      'settings' => array(
+        'path' => '',
+        'hide_blank_items' => TRUE,
+      ),
       // Add entity property info.
       'property_type' => 'field_collection_item',
       'property_callbacks' => array('field_collection_entity_metadata_property_callback'),
@@ -637,6 +640,27 @@ function field_collection_field_get_path($field) {
     return 'field-collection/' . strtr($field['field_name'], array('_' => '-'));
   }
   return $field['settings']['path'];
+}
+
+/**
+ * Implements hook_field_settings_form().
+ */
+function field_collection_field_settings_form($field, $instance) {
+
+  $form['hide_blank_items'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Hide blank items'),
+    '#default_value' => $field['settings']['hide_blank_items'],
+    '#description' => t("A blank item is always added to any multivalued field's form. If checked, any additional blank items are hidden except of the first item which is always shown."),
+    '#weight' => 10,
+    '#states' => array(
+      // Hide the setting if the cardinality is 1.
+      'invisible' => array(
+        ':input[name="field[cardinality]"]' => array('value' => '1'),
+      ),
+    ),
+  );
+  return $form;
 }
 
 /**
@@ -1047,25 +1071,36 @@ function field_collection_field_widget_form(&$form, &$form_state, $field, $insta
 
       $field_state = field_form_get_state($field_parents, $field_name, $language, $form_state);
 
+      if (!empty($field['settings']['hide_blank_items']) && $delta == $field_state['items_count'] && $delta > 0) {
+        // Do not add a blank item. Also see
+        // field_collection_field_attach_form() for correcting #max_delta.
+        $recursion--;
+        return FALSE;
+      }
+      elseif (!empty($field['settings']['hide_blank_items']) && $field_state['items_count'] == 0) {
+        // We show one item, so also specify that as item count. So when the
+        // add button is pressed the item count will be 2 and we show to items.
+        $field_state['items_count'] = 1;
+      }
+
       if (isset($field_state['entity'][$delta])) {
         $field_collection_item = $field_state['entity'][$delta];
       }
       else {
-        $field_collection_item = field_collection_field_get_entity($items[$delta], $field_name);
+        if (isset($items[$delta])) {
+          $field_collection_item = field_collection_field_get_entity($items[$delta], $field_name);
+        }
+        // Show an empty collection if we have no existing one or it does not
+        // load.
+        if (empty($field_collection_item)) {
+          $field_collection_item = entity_create('field_collection_item', array('field_name' => $field_name));
+        }
 
         // Put our entity in the form state, so FAPI callbacks can access it.
         $field_state['entity'][$delta] = $field_collection_item;
-        field_form_set_state($field_parents, $field_name, $language, $form_state, $field_state);
       }
 
-      // If the field collection entity did not load, we need to return nothing
-      // for the form otherwise fatal errors with entity_extract_ids() will
-      // continue in validation and save.
-      if (empty($field_collection_item)) {
-        $recursion--;
-        return array();
-      }
-
+      field_form_set_state($field_parents, $field_name, $language, $form_state, $field_state);
       field_attach_form('field_collection_item', $field_collection_item, $element, $form_state, $language);
 
       if (empty($element['#required'])) {
@@ -1091,6 +1126,30 @@ function field_collection_field_widget_form(&$form, &$form_state, $field, $insta
 
       $recursion--;
       return $element;
+  }
+}
+
+/**
+ * Implements hook_field_attach_form().
+ *
+ * Corrects #max_delta when we hide the blank field collection item.
+ *
+ * @see field_add_more_js()
+ * @see field_collection_field_widget_form()
+ */
+function field_collection_field_attach_form($entity_type, $entity, &$form, &$form_state, $langcode) {
+
+  foreach (field_info_instances($entity_type, $form['#bundle']) as $field_name => $instance) {
+    $field = field_info_field($field_name);
+
+    if ($field['type'] == 'field_collection' && $field['settings']['hide_blank_items']
+        && field_access('edit', $field, $entity_type) && $instance['widget']['type'] == 'field_collection_embed') {
+
+      $element_langcode = $form[$field_name]['#language'];
+      if ($form[$field_name][$element_langcode]['#max_delta'] > 0) {
+        $form[$field_name][$element_langcode]['#max_delta']--;
+      }
+    }
   }
 }
 
@@ -1160,9 +1219,10 @@ function field_collection_remove_submit($form, &$form_state) {
   $parents = $parent_element['#field_parents'];
 
   $field_state = field_form_get_state($parents, $field_name, $langcode, $form_state);
+
   // Go ahead and renumber everything from our delta to the last
   // item down one. This will overwrite the item being removed.
-  for ($i = $delta; $i < $field_state['items_count']; $i++) {
+  for ($i = $delta; $i <= $field_state['items_count']; $i++) {
     $old_element_address = array_merge($address, array($i + 1));
     $new_element_address = array_merge($address, array($i));
 
@@ -1178,20 +1238,19 @@ function field_collection_remove_submit($form, &$form_state) {
     drupal_array_set_nested_value($form_state['input'], $moving_element['#parents'], $moving_element_input);
 
     // Move the entity in our saved state.
-    $field_state['entity'][$i] = $field_state['entity'][$i + 1];
+    if (isset($field_state['entity'][$i + 1])) {
+      $field_state['entity'][$i] = $field_state['entity'][$i + 1];
+    }
+    else {
+      unset($field_state['entity'][$i]);
+    }
   }
-
-  // For the final item there is nothing to move into its place, so remove it.
-  $i = $field_state['items_count'];
-  $removed_element_address = array_merge($address, array($i));
-  $removed_element = drupal_array_get_nested_value($form, $removed_element_address);
-  form_set_value($removed_element, NULL, $form_state);
-  drupal_array_set_nested_value($form_state['input'], $removed_element['#parents'], NULL);
 
   // Replace the deleted entity with an empty one. This helps to ensure that
   // trying to add a new entity won't ressurect a deleted entity from the
   // trash bin.
-  $field_state['entity'][$field_state['items_count']] = entity_create('field_collection_item', array('field_name' => $field_name));
+  $count = count($field_state['entity']);
+  $field_state['entity'][$count] = entity_create('field_collection_item', array('field_name' => $field_name));
 
   // Then remove the last item. But we must not go negative.
   if ($field_state['items_count'] > 0) {
@@ -1220,7 +1279,6 @@ function field_collection_remove_submit($form, &$form_state) {
   }
 
   drupal_array_set_nested_value($form_state['input'], $address, $input);
-
   field_form_set_state($parents, $field_name, $langcode, $form_state, $field_state);
 
   $form_state['rebuild'] = TRUE;
