@@ -193,3 +193,23 @@ function field_collection_update_7001() {
   $schema = drupal_get_schema('field_collection_item_revision', TRUE);
 }
 
+/**
+ * Remove orphaned field collection item entities.
+ */
+function field_collection_update_7002() {
+  // Loop over all fields and delete any orphaned field collection items.
+  foreach (field_read_fields(array('type' => 'field_collection')) as $field_name => $field) {
+
+    $select = db_select('field_collection_item', 'fci')
+      ->fields('fci', array('item_id'))
+      ->condition('field_name', $field_name)
+      ->condition('archived', 0);
+    $select->leftJoin('field_data_' . $field_name, 'field', "field.{$field_name}_value = fci.item_id ");
+    $select->isNull('field.entity_id');
+    $ids = $select->execute()->fetchCol(0);
+
+    entity_delete_multiple('field_collection_item', $ids);
+    $count = count($ids);
+    drupal_set_message("Deleted $count orphaned field collection items.");
+  }
+}
