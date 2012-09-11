@@ -45,15 +45,23 @@ class FieldCollectionBasicTestCase extends DrupalWebTestCase {
   }
 
   /**
-   * Tests CRUD.
+   * Helper for creating a new node with a field collection item.
    */
-  function testCRUD() {
+  protected function createNodeWithFieldCollection() {
     $node = $this->drupalCreateNode(array('type' => 'article'));
     // Manually create a field_collection.
     $entity = entity_create('field_collection_item', array('field_name' => $this->field_name));
     $entity->setHostEntity('node', $node);
     $entity->save();
 
+    return array($node, $entity);
+  }
+
+  /**
+   * Tests CRUD.
+   */
+  function testCRUD() {
+    list ($node, $entity) = $this->createNodeWithFieldCollection();
     $node = node_load($node->nid, NULL, TRUE);
     $this->assertEqual($entity->item_id, $node->{$this->field_name}[LANGUAGE_NONE][0]['value'], 'A field_collection has been successfully created and referenced.');
     $this->assertEqual($entity->revision_id, $node->{$this->field_name}[LANGUAGE_NONE][0]['revision_id'], 'A field_collection has been successfully created and referenced.');
@@ -104,10 +112,7 @@ class FieldCollectionBasicTestCase extends DrupalWebTestCase {
     $this->assertTrue(count($node->{$this->field_name}[LANGUAGE_NONE]) == 1 && !empty($node->{$this->field_name}[LANGUAGE_NONE][0]['value']) && !empty($node->{$this->field_name}[LANGUAGE_NONE][0]['revision_id']), 'Link has been established.');
 
     // Test Revisions.
-    $node = $this->drupalCreateNode(array('type' => 'article'));
-    $item = entity_create('field_collection_item', array('field_name' => $this->field_name));
-    $item->setHostEntity('node', $node);
-    $item->save();
+    list ($node, $item) = $this->createNodeWithFieldCollection();
 
     // Test saving a new revision of a node.
     $node->revision = TRUE;
@@ -148,12 +153,7 @@ class FieldCollectionBasicTestCase extends DrupalWebTestCase {
 
     // Test having archived field collections, i.e. collections referenced only
     // in non-default revisions.
-    $node = $this->drupalCreateNode(array('type' => 'article'));
-    // Manually create a field_collection.
-    $item = entity_create('field_collection_item', array('field_name' => $this->field_name));
-    $item->setHostEntity('node', $node);
-    $item->save();
-
+    list ($node, $item) = $this->createNodeWithFieldCollection();
     // Create two revisions.
     $node_vid = $node->vid;
     $node->revision = TRUE;
@@ -192,6 +192,24 @@ class FieldCollectionBasicTestCase extends DrupalWebTestCase {
     // collection item as it contains its last revision.
     node_revision_delete($node_vid);
     $this->assertFalse(field_collection_item_load($item->item_id), 'Archived field collection deleted when last revision deleted.');
+
+    // Test that removing a field-collection item also deletes it.
+    list ($node, $item) = $this->createNodeWithFieldCollection();
+
+    $node->{$this->field_name}[LANGUAGE_NONE] = array();
+    $node->revision = FALSE;
+    node_save($node);
+    $this->assertFalse(field_collection_item_load($item->item_id), 'Removed field collection item has been deleted.');
+
+    // Test removing a field-collection item while creating a new host revision.
+    list ($node, $item) = $this->createNodeWithFieldCollection();
+    $node->{$this->field_name}[LANGUAGE_NONE] = array();
+    $node->revision = TRUE;
+    node_save($node);
+    // Item should not be deleted but archived now.
+    $item = field_collection_item_load($item->item_id);
+    $this->assertTrue($item, 'Removed field collection item still exists.');
+    $this->assertTrue($item->archived, 'Removed field collection item is archived.');
   }
 
   /**

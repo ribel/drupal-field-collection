@@ -527,14 +527,16 @@ class FieldCollectionItemEntity extends Entity {
       return;
     }
     $info = entity_get_info($this->hostEntityType());
-    if (empty($info['entity keys']['revision'])) {
+    if (empty($info['entity keys']['revision']) || !$this->hostEntity()) {
       return $this->delete();
     }
-    if (!$this->isDefaultRevision()) {
+    if (!$skip_host_update) {
+      // Just remove the item from the host, which cares about deleting the
+      // item (depending on whether the update creates a new revision).
+      $this->deleteHostEntityReference();
+    }
+    elseif (!$this->isDefaultRevision()) {
       entity_revision_delete('field_collection_item', $this->revision_id);
-      if (!$skip_host_update) {
-        $this->deleteHostEntityReference();
-      }
     }
     // If deleting the default revision, take care!
     else {
@@ -555,11 +557,7 @@ class FieldCollectionItemEntity extends Entity {
           ->condition('item_id', $this->item_id)
           ->execute();
         entity_get_controller('field_collection_item')->resetCache(array($this->item_id));
-
         entity_revision_delete('field_collection_item', $this->revision_id);
-        if (!$skip_host_update) {
-          $this->deleteHostEntityReference();
-        }
       }
     }
   }
@@ -914,6 +912,40 @@ function field_collection_field_presave($host_entity_type, $host_entity, $field,
           'value' => $entity->item_id,
           'revision_id' => $entity->revision_id,
         );
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_field_update().
+ *
+ * Care about removed field collection items.
+ */
+function field_collection_field_update($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  $items_original = !empty($entity->original->{$field['field_name']}[$langcode]) ? $entity->original->{$field['field_name']}[$langcode] : array();
+  $original_by_id = array_flip(field_collection_field_item_to_ids($items_original));
+
+  foreach ($items as $item) {
+    unset($original_by_id[$item['value']]);
+  }
+
+  // If there are removed items, care about deleting the item entities.
+  if ($original_by_id) {
+    $ids = array_flip($original_by_id);
+
+    // If we are creating a new revision, the old-items should be kept but get
+    // marked as archived now.
+    if (!empty($entity->revision)) {
+      db_update('field_collection_item')
+        ->fields(array('archived' => 1))
+        ->condition('item_id', $ids, 'IN')
+        ->execute();
+    }
+    else {
+      // Delete unused field collection items now.
+      foreach (field_collection_item_load_multiple($ids) as $item) {
+        $item->deleteRevision(TRUE);
       }
     }
   }
