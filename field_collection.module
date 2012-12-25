@@ -291,7 +291,7 @@ class FieldCollectionItemEntity extends Entity {
    */
   public function setHostEntity($entity_type, $entity, $langcode = LANGUAGE_NONE, $create_link = TRUE) {
     if (!empty($this->is_new)) {
-      $this->hostEntityType = $entity_type;;
+      $this->hostEntityType = $entity_type;
       $this->hostEntity = $entity;
       $this->langcode = $langcode;
 
